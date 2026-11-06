@@ -29,7 +29,6 @@ public class ClientEventHandler {
 
 
     private String lastGui = null;
-    private int lastScale = -1;
 
     private boolean renderGuiTakenOver = false;
     private boolean ingameRenderTakenOver = false;
@@ -44,14 +43,9 @@ public class ClientEventHandler {
         if (e.getGui() != null) {
             try{
                 String name = e.getGui().getClass().getName();
-                /*if ((name.equals(lastGui) && Minecraft.getMinecraft().gameSettings.guiScale == lastScale)) {
-                    return;
-                }*/
+
                 if (renderGuiTakenOver) {
                     renderGuiTakenOver = false;
-                    return;
-                }
-                if (ConfigHandler.inBlacklist(name)) {
                     return;
                 }
                 //Prevent GuiVideoSettings from changing scale after opening GuiConfigSG
@@ -74,61 +68,74 @@ public class ClientEventHandler {
 
                 lastGui = name;
 
-                if (ConfigHandler.inDynamics(name) && e.getGui() instanceof GuiContainer) {
-                    renderGuiTakenOver = true;
-                    int xSize = ((GuiContainer)e.getGui()).getXSize();
-                    int ySize = ((GuiContainer)e.getGui()).getYSize();
-                    Minecraft.getMinecraft().gameSettings.guiScale = ConfigHandler.customScales.guiScale;
-                    int i;
-                    int w = 0;
-                    int h = 0;
-                    for (i = (new ScaledResolution(Minecraft.getMinecraft()).getScaleFactor()); i >= 0; i--) {
-                        Minecraft.getMinecraft().gameSettings.guiScale = i;
-                        ScaledResolution scaledResolution = new ScaledResolution(Minecraft.getMinecraft());
-                        w = scaledResolution.getScaledWidth();
-                        h = scaledResolution.getScaledHeight();
-                        if (w > xSize && h > ySize) {
-                            break;
-                        }
-                    }
-                    lastScale = i;
+                GuiScreen gui = e.getGui();
+                double newScale;
 
-                    e.setCanceled(true);
-                    e.getGui().setWorldAndResolution(Minecraft.getMinecraft(), w, h);
-                    //renderGuiTakenOver = false;
-                    return;
+                if (ConfigHandler.inBlacklist(name)) {
+                    //This GUI cannot cope with a rescaled world, so let vanilla handle it.
+                    ScaleContext.clear();
+                    newScale = -1.0D;
+                } else if (ConfigHandler.inDynamics(name) && gui instanceof GuiContainer) {
+                    newScale = getDynamicScale((GuiContainer) gui);
+                    ScaleContext.set(newScale);
+                } else {
+                    newScale = ConfigHandler.getGuiScale(gui);
+                    ScaleContext.set(newScale);
                 }
 
-                int newScale = ConfigHandler.getGuiScale(e.getGui());
-                if (Minecraft.getMinecraft().gameSettings.guiScale == newScale) {
+                int w;
+                int h;
+                {
+                    ScaledResolution scaledResolution = new ScaledResolution(Minecraft.getMinecraft());
+                    w = scaledResolution.getScaledWidth();
+                    h = scaledResolution.getScaledHeight();
+                }
+
+                if (gui.width == w && gui.height == h) {
+                    //Already laid out for this scale, nothing to do.
                     return;
                 }
-                lastScale = newScale;
-                //ScalingGUIs.logger.info("GUI is NOT null. Setting scale to " + newScale + ".");
 
                 renderGuiTakenOver = true;
-                Minecraft.getMinecraft().gameSettings.guiScale = newScale;
-                ScaledResolution scaledResolution = new ScaledResolution(Minecraft.getMinecraft());
-                int w = scaledResolution.getScaledWidth();
-                int h = scaledResolution.getScaledHeight();
                 e.setCanceled(true);
-                e.getGui().setWorldAndResolution(Minecraft.getMinecraft(), w, h);
-                //renderGuiTakenOver = false;
+                gui.setWorldAndResolution(Minecraft.getMinecraft(), w, h);
 
             } catch(Exception ex) {
-                //ScalingGUIs.logger.warn("Error in onGuiOpen (if): ", ex);
                 renderGuiTakenOver = false;
+                ScaleContext.clear();
+
+                if (ScalingGUIs.logger != null) {
+                    ScalingGUIs.logger.error("Unable to apply a GUI scale to " + e.getGui().getClass().getName(), ex);
+                }
             }
         } else {
-            try{
-                lastGui = null;
-                lastScale = -1;
-                //ScalingGUIs.logger.info("GUI IS NULL.");
+            lastGui = null;
+        }
+    }
 
-            } catch(Exception ex) {
-                //ScalingGUIs.logger.warn("Error in onGuiOpen (else): ", ex);
+    /**
+     * Finds the biggest scale (in 0.25 steps) at which the container still fits on screen. Formerly this was
+     * an integer loop over vanilla scale factors.
+     */
+    private double getDynamicScale(GuiContainer container)
+    {
+        int xSize = container.getXSize();
+        int ySize = container.getYSize();
+        Minecraft mc = Minecraft.getMinecraft();
+
+        int steps = (int) Math.round(ConfigHandler.getMaxSelectableScale() / ConfigHandler.SCALE_STEP);
+
+        for (int i = steps; i >= 1; i--) {
+            double scale = ConfigHandler.quantize(i * ConfigHandler.SCALE_STEP);
+            double width = Math.floor(mc.displayWidth / scale);
+            double height = Math.floor(mc.displayHeight / scale);
+
+            if (width > xSize && height > ySize) {
+                return scale;
             }
         }
+
+        return 1.0D;
     }
 
     //Copied from Vise and modified to fit the context of ScalingGUIs. See license.
@@ -139,31 +146,42 @@ public class ClientEventHandler {
             if (ingameRenderTakenOver) {
                 return;
             }
-            int newScale = ConfigHandler.getHudScale();
-            int oldScale = Minecraft.getMinecraft().gameSettings.guiScale;
+
+            Minecraft mc = Minecraft.getMinecraft();
+            double previousScale = ScaleContext.get();
+
             try {
-                Minecraft.getMinecraft().gameSettings.guiScale = newScale;
                 ingameRenderTakenOver = true;
+                ScaleContext.set(ConfigHandler.getHudScale());
+                //The HUD is positioned from its own ScaledResolution, so the ortho projection has to be
+                //rebuilt for the HUD scale before rendering it.
+                mc.entityRenderer.setupOverlayRendering();
                 e.setCanceled(true);
-                Minecraft.getMinecraft().ingameGUI.renderGameOverlay(e.getPartialTicks());
-                ingameRenderTakenOver = false;
+                mc.ingameGUI.renderGameOverlay(e.getPartialTicks());
             } finally {
-                Minecraft.getMinecraft().gameSettings.guiScale = oldScale;
-                Minecraft.getMinecraft().entityRenderer.setupOverlayRendering();
+                ingameRenderTakenOver = false;
+
+                if (previousScale > 0.0D) {
+                    ScaleContext.set(previousScale);
+                } else {
+                    ScaleContext.clear();
+                }
+
+                mc.entityRenderer.setupOverlayRendering();
             }
         }
     }
 
     //Causes toasts to scale with the HUD while no GUI is open
     @SubscribeEvent(priority = EventPriority.HIGHEST)
-    //public void onRenderTick(TickEvent.RenderTickEvent e) // Also works
     public void onClientTick(TickEvent.ClientTickEvent e)
     {
+        Minecraft minecraft = Minecraft.getMinecraft();
 
-        if (Minecraft.getMinecraft().currentScreen == null)
+        if (minecraft.currentScreen == null)
         {
-            Minecraft minecraft = Minecraft.getMinecraft();
-            minecraft.gameSettings.guiScale = ConfigHandler.getHudScale();
+            //With no screen open the HUD (and anything else drawn as an overlay) is what needs the scale.
+            ScaleContext.set(ConfigHandler.getHudScale());
         }
     }
 
@@ -173,46 +191,28 @@ public class ClientEventHandler {
     //May need to play around with priority if other mods render things with the RenderTooltipEvent.Pre event
     @SubscribeEvent(priority=EventPriority.LOWEST)
     public void onPreRenderTooltip(RenderTooltipEvent.Pre e) {
-        int newScale = clampScale(ConfigHandler.getTooltipScale());
-        //ScalingGUIs.logger.info("Setting TOOLTIP scale to " + newScale + ".");
+        double newScale = ConfigHandler.getTooltipScale();
+        double currentScale = ScaleContext.isActive()
+                ? ScaleContext.get()
+                : new ScaledResolution(Minecraft.getMinecraft()).getScaleFactor();
+
         GlStateManager.pushMatrix();
-        ScaledResolution res = new ScaledResolution(Minecraft.getMinecraft());
-        float sF = (float)res.getScaleFactor();
-        float f = newScale/(float)res.getScaleFactor();
-        GlStateManager.scale(f, f, f);
-        e.setX((int)(e.getX()/f));
-        e.setY((int)(e.getY()/f));
-        e.setScreenWidth((int)(e.getScreenWidth()/f));
-        e.setScreenHeight((int)(e.getScreenHeight()/f));
-        e.setMaxWidth((int)(e.getMaxWidth()/f));
+
+        if (newScale > 0.0D && currentScale > 0.0D) {
+            float f = (float) (newScale / currentScale);
+            GlStateManager.scale(f, f, f);
+            e.setX((int)(e.getX()/f));
+            e.setY((int)(e.getY()/f));
+            e.setScreenWidth((int)(e.getScreenWidth()/f));
+            e.setScreenHeight((int)(e.getScreenHeight()/f));
+            e.setMaxWidth((int)(e.getMaxWidth()/f));
+        }
     }
 
     //Copied from Vise. See license.
     @SubscribeEvent(priority=EventPriority.LOWEST)
     public void onPostRenderTooltip(RenderTooltipEvent.PostText e) {
         GlStateManager.popMatrix();
-        if (Minecraft.getMinecraft().currentScreen != null) {
-            GuiScreen currentScreen = Minecraft.getMinecraft().currentScreen;
-            //ScalingGUIs.logger.info(currentScreen.getClass().getName());
-        }
-    }
-
-    //Copied from Vise. See license.
-    private static int getMaxScale() {
-        Minecraft mc = Minecraft.getMinecraft();
-        int maxScaleW = (mc.displayWidth/320);
-        int maxScaleH = (mc.displayHeight/240);
-        int maxScale = Math.min(maxScaleW, maxScaleH);
-        return maxScale;
-    }
-
-    //Copied from Vise. See license.
-    private int clampScale(int scale) {
-        int max = getMaxScale();
-        if (scale == 0 || scale > max) {
-            return max;
-        }
-        return scale;
     }
 
 
@@ -220,6 +220,15 @@ public class ClientEventHandler {
     @SubscribeEvent
     public void onPostInit(GuiScreenEvent.InitGuiEvent.Post e)
     {
+        if (ConfigHandler.logScaleChanges && ScalingGUIs.logger != null) {
+            GuiScreen gui = e.getGui();
+
+            if (gui != null) {
+                ScalingGUIs.logger.info("Initialized {} at {}x{} (scale {}, {} buttons)", gui.getClass().getSimpleName(),
+                        gui.width, gui.height, ScaleContext.get(), e.getButtonList().size());
+            }
+        }
+
         if (e.getGui() instanceof GuiVideoSettings) {
             GuiVideoSettings gvs = (GuiVideoSettings) e.getGui();
             if (FMLClientHandler.instance().hasOptifine()) {
@@ -244,12 +253,10 @@ public class ClientEventHandler {
             if (buttonA instanceof GuiOptionButton && ((GuiOptionButton)buttonA).getOption() == GameSettings.Options.GUI_SCALE) {
                 buttonA = new GuiVideoSettingsButton(row.buttonA.id, buttonA.x, buttonA.y, buttonA.width, buttonA.height, I18n.format("scalingguis.videosettings.button"));
                 found = true;
-                //ScalingGUIs.logger.info("Found scale button in buttonA.");
             }
             if (buttonB instanceof GuiOptionButton && ((GuiOptionButton)buttonB).getOption() == GameSettings.Options.GUI_SCALE) {
                 buttonB = new GuiVideoSettingsButton(row.buttonB.id, buttonB.x, buttonB.y, buttonB.width, buttonB.height, I18n.format("scalingguis.videosettings.button"));
                 found = true;
-                //ScalingGUIs.logger.info("Found scale button in buttonB.");
             }
             if (found) {
                 options.set(i, new GuiOptionsRowList.Row(buttonA, buttonB));
@@ -262,8 +269,6 @@ public class ClientEventHandler {
     //public void replaceGuiScaleOptionOptifine(GuiVideoSettings gvs)
     public List<GuiButton> replaceGuiScaleOptionOptifine(List<GuiButton> buttonList)
     {
-       //ListIterator<GuiButton> iter = gvs.buttonList.listIterator();
-
        ListIterator<GuiButton> iter = buttonList.listIterator();
 
        while (iter.hasNext()) {
@@ -272,7 +277,6 @@ public class ClientEventHandler {
 
            if (guiButton instanceof GuiOptionButton && ((GuiOptionButton)guiButton).getOption() == GameSettings.Options.GUI_SCALE) {
                GuiButton newGuiButton = new GuiVideoSettingsButton(guiButton.id, guiButton.x, guiButton.y, guiButton.width, guiButton.height, I18n.format("scalingguis.videosettings.button"));
-               //gvs.buttonList.set(index, newGuiButton);
                buttonList.set(index, newGuiButton);
                break;
            }

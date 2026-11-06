@@ -85,7 +85,7 @@ scalingguis.config.general.title.tooltip=General ScalingGUIs settings.
 
 
 # Slider Text
-scalingguis.slidertext.auto=AUTO (MAX)
+scalingguis.slidertext.auto=AUTO (%s)
 scalingguis.slidertext.small=SMALL
 scalingguis.slidertext.normal=NORMAL
 scalingguis.slidertext.large=LARGE

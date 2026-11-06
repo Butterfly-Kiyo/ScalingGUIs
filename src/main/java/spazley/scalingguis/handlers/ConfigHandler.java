@@ -33,12 +33,37 @@ public class ConfigHandler
     public static boolean logGuiClassNamesChat = false;
     private static boolean sortLoggedAlphabetically = false;
 
+    /** 1080p -> ~3x, 1440p -> 4x, 2160p -> 6x. */
+    public static final double DEFAULT_REFERENCE_HEIGHT = 360.0D;
+
+    /** A scale of 0 means AUTO: the scale is derived from the display resolution. */
+    public static final double MIN_SCALE = 0.0D;
+
+    /** Hard upper bound for the slider. The effective maximum also depends on the display resolution. */
+    public static final double MAX_SCALE = 12.0D;
+
+    /** Sliders snap to this step. */
+    public static final double SCALE_STEP = 0.25D;
+
+    public static final double AUTO_SCALE = 0.0D;
+
+    /** Bumped whenever the meaning of stored values changes. */
+    public static final int CONFIG_FORMAT_VERSION = 2;
+
+    /** Enables fractional (non integer) GUI scales. Disable to fall back to vanilla 1x, 2x, 3x... behaviour. */
+    public static boolean fractionalScaling = true;
+
+    /** Logs every applied scale together with the resulting virtual resolution. Useful for support requests. */
+    public static boolean logScaleChanges = false;
+
+    /**
+     * Height in GUI pixels that the AUTO scale aims for. Vanilla effectively targets 240-480 depending on
+     * the display, this value is what makes a GUI look the same physical size across resolutions.
+     */
+    public static double referenceHeight = DEFAULT_REFERENCE_HEIGHT;
+
     //public static String configPath = "config/ScalingGUIs/ScalingGUIs.cfg";
     public static String scaleOverridesPath = "config/ScalingGUIs/ScalingGUIsCustomScales.json";
-
-    public static final int MIN_SCALE = 0;
-    public static final int MAX_SCALE = 9; //max actual scale of 8x. +1 to allow sliders to have default scale option
-
 
     public static void initConfigs()
     {
@@ -54,13 +79,20 @@ public class ConfigHandler
         addDefaultBlacklist = config.getBoolean("updateBlacklist", Configuration.CATEGORY_GENERAL, true, "Update the blacklist with the current default blacklist. Will not remove custom blacklist entries.");
         logGuiClassNamesChat = config.getBoolean("logToChat", Configuration.CATEGORY_GENERAL, false, "Display opened GUI class names in the ingame chat.");
         sortLoggedAlphabetically = config.getBoolean("sortNames", Configuration.CATEGORY_GENERAL, false, "Diplay logged GUI class names alphabetically in select-value screens.");
-        //Collections.addAll(loggedGuiClassNames, config.getStringList("Logged GUI Class Names", "log", new String[0], "Persistent log of GUI class names. Updated on config save."));
+        fractionalScaling = config.getBoolean("fractionalScaling", Configuration.CATEGORY_GENERAL, true,
+                "Allow non integer GUI scales (for example 3.75x). This is what makes GUI size consistent across different resolutions. Disable to use vanilla integer scaling only.");
+        logScaleChanges = config.getBoolean("logScaleChanges", Configuration.CATEGORY_GENERAL, false,
+                "Write the scale that is being applied, and the resulting virtual resolution, to the log. Useful when reporting sizing problems.");
+        referenceHeight = config.getFloat("referenceHeight", Configuration.CATEGORY_GENERAL, (float) DEFAULT_REFERENCE_HEIGHT, 200.0F, 1000.0F,
+                "The height in GUI pixels that the AUTO scale targets. Raise it for smaller looking GUIs, lower it for bigger looking GUIs. " +
+                        "360 is roughly what a 1080p screen shows at 3x.");
 
         config.save();
 
 
         File fileScaleOverrides = new File(scaleOverridesPath);
         customScales = JsonHelper.scalesFromJsonFile(fileScaleOverrides);
+        migrateScales();
         customScales.checkCustomEntries();
         if (addDefaultBlacklist)
         {
@@ -80,12 +112,64 @@ public class ConfigHandler
         dynamicGuiClassNames = new ArrayList<>(customScales.dynamicGuiScales);
     }
 
+    /**
+     * Converts scale values saved by older versions of the mod to the new meaning of "0".
+     * <p>
+     * Previously 9 was a sentinel meaning "use the main GUI scale" (and for the main GUI scale itself it
+     * meant "let vanilla pick the biggest scale that fits", i.e. MAX). Now 0 is that sentinel, and AUTO is
+     * a resolution based recommendation.
+     */
+    private static void migrateScales()
+    {
+        if (customScales.formatVersion >= CONFIG_FORMAT_VERSION) {
+            return;
+        }
+
+        final double legacyDefault = 9.0D;
+
+        if (customScales.guiScale == legacyDefault) {
+            customScales.guiScale = AUTO_SCALE;
+        }
+        if (customScales.hudScale == legacyDefault) {
+            customScales.hudScale = AUTO_SCALE;
+        }
+        if (customScales.tooltipScale == legacyDefault) {
+            customScales.tooltipScale = AUTO_SCALE;
+        }
+
+        migrateEntries(customScales.customIndividualGuiScales, legacyDefault);
+        migrateEntries(customScales.customGroupGuiScales, legacyDefault);
+
+        customScales.formatVersion = CONFIG_FORMAT_VERSION;
+    }
+
+    private static void migrateEntries(com.google.gson.JsonObject json, double legacyDefault)
+    {
+        if (json == null) {
+            return;
+        }
+
+        for (Map.Entry<String, com.google.gson.JsonElement> entry : json.entrySet()) {
+            if (entry.getValue() == null || !entry.getValue().isJsonObject()) {
+                continue;
+            }
+
+            com.google.gson.JsonObject obj = entry.getValue().getAsJsonObject();
+
+            if (obj.has("scale") && obj.get("scale").isJsonPrimitive()
+                    && obj.getAsJsonPrimitive("scale").isNumber()
+                    && obj.getAsJsonPrimitive("scale").getAsDouble() == legacyDefault) {
+                obj.addProperty("scale", AUTO_SCALE);
+            }
+        }
+    }
+
     public static void saveConfigs()
     {
         ScalingGUIs.logger.info("Saving configs");
         File fileScaleOverrides = new File(scaleOverridesPath);
 
-        Minecraft.getMinecraft().gameSettings.guiScale = customScales.guiScale;
+        Minecraft.getMinecraft().gameSettings.guiScale = (int) Math.round(getMainGuiScale());
         Minecraft.getMinecraft().gameSettings.saveOptions();
         config.save();
         JsonHelper.scalesToJsonFile(fileScaleOverrides, customScales);
@@ -125,63 +209,157 @@ public class ConfigHandler
         return dynamicGuiClassNames.contains(className);
     }
 
-    public static int getIndividualScale(String className)
+    public static double getIndividualScale(String className)
     {
-        int scale = customScales.customIndividualGuiScales.getAsJsonObject(className).getAsJsonPrimitive("scale").getAsInt();
-        return scale == MAX_SCALE ? customScales.guiScale : scale;
+        double scale = customScales.customIndividualGuiScales.getAsJsonObject(className).getAsJsonPrimitive("scale").getAsDouble();
+        return scale == AUTO_SCALE ? getMainGuiScale() : scale;
     }
 
-    public static int getGroupScale(String className)
+    public static double getGroupScale(String className)
     {
-        int scale = customScales.customGroupGuiScales.getAsJsonObject(className).getAsJsonPrimitive("scale").getAsInt();
-        return scale == MAX_SCALE ? customScales.guiScale : scale;
+        double scale = customScales.customGroupGuiScales.getAsJsonObject(className).getAsJsonPrimitive("scale").getAsDouble();
+        return scale == AUTO_SCALE ? getMainGuiScale() : scale;
     }
 
-    public static int getGuiScale(GuiScreen guiScreen)
+    /**
+     * @return the scale configured for the main GUI, with 0 resolved to the resolution based recommendation.
+     */
+    public static double getMainGuiScale()
+    {
+        return customScales.guiScale == AUTO_SCALE ? getAutoGuiScale() : customScales.guiScale;
+    }
+
+    public static double getGuiScale(GuiScreen guiScreen)
     {
         if (inIndividuals(guiScreen.getClass().getName())) {
-            return getIndividualScale(guiScreen.getClass().getName());
+            return clampScale(getIndividualScale(guiScreen.getClass().getName()));
         } else if (!"NONE".equals(inGroups(guiScreen))) {
-            return getGroupScale(inGroups(guiScreen));
+            return clampScale(getGroupScale(inGroups(guiScreen)));
         } else if (guiScreen instanceof GuiChat) {
-            return customScales.hudScale;
+            return getHudScale();
         } else {
-            return customScales.guiScale;
+            return clampScale(getMainGuiScale());
         }
     }
 
-    public static int getTooltipScale()
+    public static double getTooltipScale()
     {
-        return customScales.tooltipScale == MAX_SCALE ? customScales.guiScale : customScales.tooltipScale;
+        return clampScale(customScales.tooltipScale == AUTO_SCALE ? getMainGuiScale() : customScales.tooltipScale);
     }
 
-    public static int getHudScale()
+    public static double getHudScale()
     {
-        return customScales.hudScale == MAX_SCALE ? customScales.guiScale : customScales.hudScale;
+        return clampScale(customScales.hudScale == AUTO_SCALE ? getMainGuiScale() : customScales.hudScale);
+    }
+
+    /**
+     * The scale that vanilla would have used on this display at most, i.e. the point where the screen would
+     * become narrower than 320x240 GUI pixels. Scales above this are pointless because vanilla clamps them.
+     */
+    public static double getVanillaMaxScale()
+    {
+        Minecraft mc = Minecraft.getMinecraft();
+
+        if (mc == null || mc.displayWidth <= 0 || mc.displayHeight <= 0) {
+            return 1.0D;
+        }
+
+        double max = Math.min(mc.displayWidth / 320.0D, mc.displayHeight / 240.0D);
+        return Math.max(1.0D, max);
+    }
+
+    /**
+     * Upper bound shown on the sliders: never offer a scale vanilla would silently clamp.
+     */
+    public static double getMaxSelectableScale()
+    {
+        return Math.min(MAX_SCALE, getVanillaMaxScale());
+    }
+
+    /**
+     * The AUTO scale: the display height divided by the reference height. On a 1080p screen this is 3x, on
+     * 1440p it is 4x, on 2160p it is 6x. The reference height is configurable, so a player on an unusual
+     * monitor or viewing distance can bias every AUTO value up or down at once.
+     */
+    public static double getAutoGuiScale()
+    {
+        Minecraft mc = Minecraft.getMinecraft();
+
+        if (mc == null || mc.displayWidth <= 0 || mc.displayHeight <= 0) {
+            return 1.0D;
+        }
+
+        double reference = referenceHeight > 0.0D ? referenceHeight : DEFAULT_REFERENCE_HEIGHT;
+        return clampScale(quantize(mc.displayHeight / reference));
+    }
+
+    /**
+     * Rounds a scale to the nearest {@link #SCALE_STEP}. Keeps {@link #AUTO_SCALE} intact.
+     */
+    public static double quantize(double scale)
+    {
+        if (scale <= 0.0D) {
+            return AUTO_SCALE;
+        }
+
+        return Math.round(scale / SCALE_STEP) * SCALE_STEP;
+    }
+
+    /**
+     * Clamps a scale into the range this display can actually use. When fractional scaling is disabled the
+     * result is rounded to a whole number so the game behaves like vanilla again.
+     */
+    public static double clampScale(double scale)
+    {
+        if (scale <= 0.0D) {
+            return AUTO_SCALE;
+        }
+
+        if (!fractionalScaling) {
+            scale = Math.round(scale);
+        }
+
+        if (scale < 1.0D) {
+            scale = 1.0D;
+        }
+
+        double max = getVanillaMaxScale();
+
+        if (!fractionalScaling) {
+            //Vanilla can only reach whole scale factors.
+            max = Math.max(1.0D, Math.floor(max));
+        }
+
+        if (scale > max) {
+            scale = max;
+        }
+
+        return scale;
     }
 
 
     public static List<IConfigElement> getMainsList()
     {
         List<IConfigElement> list = new ArrayList<>();
-        int defaultScale = MAX_SCALE; //Causes the scale to default to the main GUI scale
+        double defaultScale = AUTO_SCALE; // Auto follows the main GUI scale / resolution
+        double maxScale = getMaxSelectableScale();
 
-        Property guiScaleProp = new Property("guiScale", String.valueOf(customScales.guiScale), Property.Type.INTEGER, "scalingguis.config.main.guiscale");
+        Property guiScaleProp = new Property("guiScale", String.valueOf(customScales.guiScale), Property.Type.DOUBLE, "scalingguis.config.main.guiscale");
         guiScaleProp.setDefaultValue(defaultScale);
         guiScaleProp.setMinValue(MIN_SCALE);
-        guiScaleProp.setMaxValue(MAX_SCALE);
+        guiScaleProp.setMaxValue(maxScale);
         list.add(new ScaleConfigElement(guiScaleProp).setCustomListEntryClass(SnappingSliderEntry.class));
 
-        Property hudScaleProp = new Property("hudScale", String.valueOf(customScales.hudScale), Property.Type.INTEGER, "scalingguis.config.main.hudscale");
+        Property hudScaleProp = new Property("hudScale", String.valueOf(customScales.hudScale), Property.Type.DOUBLE, "scalingguis.config.main.hudscale");
         hudScaleProp.setDefaultValue(defaultScale);
         hudScaleProp.setMinValue(MIN_SCALE);
-        hudScaleProp.setMaxValue(MAX_SCALE);
+        hudScaleProp.setMaxValue(maxScale);
         list.add(new ScaleConfigElement(hudScaleProp).setCustomListEntryClass(SnappingSliderEntry.class));
 
-        Property tooltipScaleProp = new Property("tooltipScale", String.valueOf(customScales.tooltipScale), Property.Type.INTEGER, "scalingguis.config.main.tooltipscale");
+        Property tooltipScaleProp = new Property("tooltipScale", String.valueOf(customScales.tooltipScale), Property.Type.DOUBLE, "scalingguis.config.main.tooltipscale");
         tooltipScaleProp.setDefaultValue(defaultScale);
         tooltipScaleProp.setMinValue(MIN_SCALE);
-        tooltipScaleProp.setMaxValue(MAX_SCALE);
+        tooltipScaleProp.setMaxValue(maxScale);
         list.add(new ScaleConfigElement(tooltipScaleProp).setCustomListEntryClass(SnappingSliderEntry.class));
 
         return list;
@@ -190,16 +368,17 @@ public class ConfigHandler
     public static List<IConfigElement> getIndividualsList()
     {
         List<IConfigElement> list = new ArrayList<>();
-        int defaultScale = customScales.guiScale;
+        double defaultScale = AUTO_SCALE;
+        double maxScale = getMaxSelectableScale();
 
         for (String s : JsonHelper.getKeyList(customScales.customIndividualGuiScales)) {
-            String val = customScales.customIndividualGuiScales.getAsJsonObject(s).get("scale").getAsString();
+            double val = customScales.customIndividualGuiScales.getAsJsonObject(s).get("scale").getAsDouble();
             String name = customScales.customIndividualGuiScales.getAsJsonObject(s).get("name").getAsString();
 
-            Property prop = new Property(name, val, Property.Type.INTEGER, "");
+            Property prop = new Property(name, String.valueOf(val), Property.Type.DOUBLE, "");
             prop.setDefaultValue(defaultScale);
             prop.setMinValue(MIN_SCALE);
-            prop.setMaxValue(MAX_SCALE);
+            prop.setMaxValue(maxScale);
             prop.setComment(s);
             list.add(new ScaleConfigElement(prop).setCustomListEntryClass(SnappingSliderEntry.class));
         }
@@ -210,16 +389,17 @@ public class ConfigHandler
     public static List<IConfigElement> getGroupsList()
     {
         List<IConfigElement> list = new ArrayList<>();
-        int defaultScale = customScales.guiScale;
+        double defaultScale = AUTO_SCALE;
+        double maxScale = getMaxSelectableScale();
 
         for (String s : JsonHelper.getKeyList(customScales.customGroupGuiScales)) {
-            String val = customScales.customGroupGuiScales.getAsJsonObject(s).get("scale").getAsString();
+            double val = customScales.customGroupGuiScales.getAsJsonObject(s).get("scale").getAsDouble();
             String name = customScales.customGroupGuiScales.getAsJsonObject(s).get("name").getAsString();
 
-            Property prop = new Property(name, val, Property.Type.INTEGER);
+            Property prop = new Property(name, String.valueOf(val), Property.Type.DOUBLE);
             prop.setDefaultValue(defaultScale);
             prop.setMinValue(MIN_SCALE);
-            prop.setMaxValue(MAX_SCALE);
+            prop.setMaxValue(maxScale);
             prop.setComment(s);
             list.add(new ScaleConfigElement(prop).setCustomListEntryClass(SnappingSliderEntry.class));
         }

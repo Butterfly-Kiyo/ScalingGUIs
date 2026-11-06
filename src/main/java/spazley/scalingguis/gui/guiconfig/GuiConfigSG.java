@@ -154,17 +154,17 @@ public class GuiConfigSG extends GuiConfig {
             String iceName = ice.getName();
             switch (iceName) {
                 case "guiScale":
-                    if (customScales.guiScale != Integer.valueOf(ice.get().toString())) {
+                    if (Math.abs(customScales.guiScale - Double.valueOf(ice.get().toString())) > 0.0001D) {
                         ClientEventHandler.setCancelGuiVideoSettings(false);
                         ScalingGUIs.logger.info("No cancelation");
                     }
-                    customScales.guiScale = Integer.valueOf(ice.get().toString());
+                    customScales.guiScale = Double.valueOf(ice.get().toString());
                     break;
                 case "hudScale":
-                    customScales.hudScale = Integer.valueOf(ice.get().toString());
+                    customScales.hudScale = Double.valueOf(ice.get().toString());
                     break;
                 case "tooltipScale":
-                    customScales.tooltipScale = Integer.valueOf(ice.get().toString());
+                    customScales.tooltipScale = Double.valueOf(ice.get().toString());
                     break;
                 case INDIVIDUAL_ID:
                     saveIndividuals(ice);
@@ -195,7 +195,7 @@ public class GuiConfigSG extends GuiConfig {
         for (IConfigElement ice : iConfigElementIn.getChildElements()) {
             if (!NEW_INDIVIDUAL_ID.equals(ice.getName()) && !DELETE_ID.equals(ice.getName())) {
                 String guiClassName = ice.getComment();
-                int guiScale = Integer.valueOf(ice.get().toString());
+                double guiScale = Double.valueOf(ice.get().toString());
                 String guiDisplayName = ice.getName();
 
                 JsonObject individual = new JsonObject();
@@ -216,7 +216,7 @@ public class GuiConfigSG extends GuiConfig {
         for (IConfigElement ice : iConfigElementIn.getChildElements()) {
             if (!NEW_GROUP_ID.equals(ice.getName()) && !DELETE_ID.equals(ice.getName())) {
                 String guiClassName = ice.getComment();
-                int guiScale = Integer.valueOf(ice.get().toString());
+                double guiScale = Double.valueOf(ice.get().toString());
                 String guiDisplayName = ice.getName();
 
                 JsonObject group = new JsonObject();
@@ -291,18 +291,17 @@ public class GuiConfigSG extends GuiConfig {
 
         private static List<IConfigElement> getNewScaleElements() {
             List<IConfigElement> list = new ArrayList<>();
-            //int defaultScale = ConfigHandler.customScales.guiScale;
-            int defaultScale = ConfigHandler.MAX_SCALE; //Causes the scale to default to the main GUI scale
+            double defaultScale = ConfigHandler.AUTO_SCALE; //Causes the scale to default to the main GUI scale
 
             list.add(new DummyConfigElement("guiClassNameSelect", "", ConfigGuiType.STRING, "scalingguis.config.add.classselect").setCustomListEntryClass(GuiClassName.class));
             //list.add(new ConfigElement(new Property("guiClassName", "", Property.Type.STRING, "scalingguis.config.add.classname")));
             list.add(new ClassStringElement(new Property("guiClassName", "", Property.Type.STRING, "scalingguis.config.add.classname")).setCustomListEntryClass(GuiClassStringEntry.class));
             list.add(new ConfigElement(new Property("guiDisplayName", "", Property.Type.STRING, "scalingguis.config.add.displayname")));
 
-            Property guiScaleProp = new Property("guiScale", String.valueOf(defaultScale), Property.Type.INTEGER, "scalingguis.config.add.scale");
+            Property guiScaleProp = new Property("guiScale", String.valueOf(defaultScale), Property.Type.DOUBLE, "scalingguis.config.add.scale");
             guiScaleProp.setDefaultValue(defaultScale);
             guiScaleProp.setMinValue(ConfigHandler.MIN_SCALE);
-            guiScaleProp.setMaxValue(ConfigHandler.MAX_SCALE);
+            guiScaleProp.setMaxValue(ConfigHandler.getMaxSelectableScale());
 
             list.add(new ScaleConfigElement(guiScaleProp).setCustomListEntryClass(SnappingSliderEntry.class));
 
@@ -334,11 +333,11 @@ public class GuiConfigSG extends GuiConfig {
             }
             guiDisplayName = ("".equals(guiDisplayName)) ? guiClassName : guiDisplayName;
 
-            Property guiScaleProp = new Property(guiDisplayName, guiScale, Property.Type.INTEGER);
+            Property guiScaleProp = new Property(guiDisplayName, guiScale, Property.Type.DOUBLE);
             guiScaleProp.setComment(guiClassName);
             guiScaleProp.setMinValue(ConfigHandler.MIN_SCALE);
-            guiScaleProp.setMaxValue(ConfigHandler.MAX_SCALE);
-            guiScaleProp.setDefaultValue(ConfigHandler.customScales.guiScale);
+            guiScaleProp.setMaxValue(ConfigHandler.getMaxSelectableScale());
+            guiScaleProp.setDefaultValue(ConfigHandler.AUTO_SCALE);
 
             return new ScaleConfigElement(guiScaleProp).setCustomListEntryClass(SnappingSliderEntry.class);
         }

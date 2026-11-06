@@ -8,6 +8,8 @@ import net.minecraftforge.fml.client.config.IConfigElement;
 
 public class SnappingSliderEntry extends GuiConfigEntries.ButtonEntry {
 
+    private static final double EPSILON = 0.0001D;
+
     public final double beforeValue;
 
     public SnappingSliderEntry(GuiConfig owningScreen, GuiConfigEntries owningEntryList, IConfigElement configElement)
@@ -16,12 +18,9 @@ public class SnappingSliderEntry extends GuiConfigEntries.ButtonEntry {
                 new GuiSnappingSlider(0,owningEntryList.controlX,0,owningEntryList.controlWidth,18,
                         "","", Double.valueOf(configElement.getMinValue().toString()),
                         Double.valueOf(configElement.getMaxValue().toString()), Double.valueOf(configElement.get().toString()),
-                        configElement.getType() == ConfigGuiType.DOUBLE, true));
+                        true, true));
 
-        if (configElement.getType() == ConfigGuiType.INTEGER)
-            this.beforeValue = Integer.valueOf(configElement.get().toString());
-        else
-            this.beforeValue = Double.valueOf(configElement.get().toString());
+        this.beforeValue = Double.valueOf(configElement.get().toString());
     }
 
     @Override
@@ -36,10 +35,8 @@ public class SnappingSliderEntry extends GuiConfigEntries.ButtonEntry {
     @Override
     public boolean isDefault()
     {
-        if (configElement.getType() == ConfigGuiType.INTEGER)
-            return ((GuiSnappingSlider) this.btnValue).getValueInt() == Integer.valueOf(configElement.getDefault().toString());
-        else
-            return ((GuiSnappingSlider) this.btnValue).getValue() == Double.valueOf(configElement.getDefault().toString());
+        double defaultValue = Double.valueOf(configElement.getDefault().toString());
+        return Math.abs(((GuiSnappingSlider) this.btnValue).getValue() - defaultValue) < EPSILON;
     }
 
     @Override
@@ -55,10 +52,7 @@ public class SnappingSliderEntry extends GuiConfigEntries.ButtonEntry {
     @Override
     public boolean isChanged()
     {
-        if (configElement.getType() == ConfigGuiType.INTEGER)
-            return ((GuiSnappingSlider) this.btnValue).getValueInt() != (int) Math.round(beforeValue);
-        else
-            return ((GuiSnappingSlider) this.btnValue).getValue() != beforeValue;
+        return Math.abs(((GuiSnappingSlider) this.btnValue).getValue() - beforeValue) >= EPSILON;
     }
 
     @Override

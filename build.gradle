@@ -6,10 +6,10 @@ plugins {
     id 'maven-publish'
     id 'org.jetbrains.gradle.plugin.idea-ext' version '1.1.7'
     id 'eclipse'
-    id 'com.gtnewhorizons.retrofuturagradle' version '1.3.16'
+    id 'com.gtnewhorizons.retrofuturagradle' version '1.4.2'
 }
 
-version = "1.12.2-1.0.3.1"
+version = "1.12.2-2.0.0"
 group = "spazley.scalingguis" // http://maven.apache.org/guides/mini/guide-naming-conventions.html
 archivesBaseName = "scalingguis"
 
@@ -44,6 +44,10 @@ minecraft {
 }
 
 dependencies {
+    // Needed by the coremod: IClassTransformer / IFMLLoadingPlugin and the ASM visitors.
+    // Both are provided by the game at runtime, they are compile time only.
+    compileOnly 'net.minecraft:launchwrapper:1.12'
+    compileOnly 'org.ow2.asm:asm-debug-all:5.2'
 }
 
 processResources {
@@ -73,7 +77,12 @@ for (File at : sourceSets.getByName("main").resources.files) {
 
 jar {
     manifest {
-        attributes 'FMLAT': 'scalingguis_at.cfg'
+        def attribute_map = [:]
+        attribute_map['FMLAT'] = 'scalingguis_at.cfg'
+        // The coremod patches ScaledResolution so GUI scales are no longer limited to whole numbers.
+        attribute_map['FMLCorePlugin'] = 'spazley.scalingguis.asm.ScalingGUIsCorePlugin'
+        attribute_map['FMLCorePluginContainsFMLMod'] = true
+        attributes(attribute_map)
     }
 }
 

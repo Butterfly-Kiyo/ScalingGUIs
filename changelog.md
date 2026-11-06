@@ -1,5 +1,16 @@
 Changelog
 
+1.12.2-2.0.0
+* Added fractional (non-integer) scaling in 0.25 steps for GUI, HUD and Tooltip scales
+  * Patches ScaledResolution through an embedded coremod, so the projection, HUD, mouse coordinates and GUI layouts all agree
+  * Auto scale is now adaptive: display height divided by a configurable reference height (default 360 = the 1080p @ 3x look)
+* Changed scale settings from integer to double; slider maximum is now the highest scale the current resolution can actually use
+* Changed the old "default (max scale)" option into "follow main GUI scale"; existing configs are migrated automatically
+* Added fractionalScaling config (set to false to fall back to the vanilla integer behaviour)
+* Added logScaleChanges config for troubleshooting sizing problems
+* Bug Fix - Scale sliders no longer offer settings that vanilla would silently clamp on high resolution displays
+* Updated build to RetroFuturamaGradle 1.4.2 and the GTNH maven repository
+
 1.12.2-1.0.3.1
 * Bug Fix - Fixes ConcurrentModificationException (#1). Thanks to Srdjan-V.
 
