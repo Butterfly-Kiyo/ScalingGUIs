@@ -1,7 +1,7 @@
 Changelog
 
 1.12.2-2.0.0
-* Added fractional (non-integer) scaling in 0.25 steps for GUI, HUD and Tooltip scales
+* Added fractional (non-integer) scaling for GUI, HUD and Tooltip scales (step configurable via `scaleStep`, default 0.05)
   * Patches ScaledResolution through an embedded coremod, so the projection, HUD, mouse coordinates and GUI layouts all agree
   * Auto scale is now adaptive: display height divided by a configurable reference height (default 360 = the 1080p @ 3x look)
 * Changed scale settings from integer to double; slider maximum is now the highest scale the current resolution can actually use

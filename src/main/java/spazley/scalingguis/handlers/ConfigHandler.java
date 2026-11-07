@@ -42,8 +42,12 @@ public class ConfigHandler
     /** Hard upper bound for the slider. The effective maximum also depends on the display resolution. */
     public static final double MAX_SCALE = 12.0D;
 
-    /** Sliders snap to this step. */
-    public static final double SCALE_STEP = 0.25D;
+    /** Default granularity of the scale sliders. 0.05 gives two decimals of control (3.05, 3.10, 3.15...). */
+    public static final double DEFAULT_SCALE_STEP = 0.05D;
+
+    public static final double MIN_SCALE_STEP = 0.01D;
+
+    public static final double MAX_SCALE_STEP = 0.50D;
 
     public static final double AUTO_SCALE = 0.0D;
 
@@ -61,6 +65,12 @@ public class ConfigHandler
      * the display, this value is what makes a GUI look the same physical size across resolutions.
      */
     public static double referenceHeight = DEFAULT_REFERENCE_HEIGHT;
+
+    /**
+     * Granularity the scale sliders snap to. Smaller values allow finer tuning, larger values restore the
+     * old coarse behaviour. Configurable so this can be changed in game without rebuilding the mod.
+     */
+    public static double scaleStep = DEFAULT_SCALE_STEP;
 
     //public static String configPath = "config/ScalingGUIs/ScalingGUIs.cfg";
     public static String scaleOverridesPath = "config/ScalingGUIs/ScalingGUIsCustomScales.json";
@@ -86,6 +96,9 @@ public class ConfigHandler
         referenceHeight = config.getFloat("referenceHeight", Configuration.CATEGORY_GENERAL, (float) DEFAULT_REFERENCE_HEIGHT, 200.0F, 1000.0F,
                 "The height in GUI pixels that the AUTO scale targets. Raise it for smaller looking GUIs, lower it for bigger looking GUIs. " +
                         "360 is roughly what a 1080p screen shows at 3x.");
+        scaleStep = config.getFloat("scaleStep", Configuration.CATEGORY_GENERAL, (float) DEFAULT_SCALE_STEP, (float) MIN_SCALE_STEP, (float) MAX_SCALE_STEP,
+                "Granularity of the scale sliders. 0.05 (default) allows values like 3.15 or 3.75, 0.25 is the old coarse behaviour, " +
+                        "0.01 gives the finest control. Changing this does not alter scales you already stored, only how the sliders step.");
 
         config.save();
 
@@ -294,7 +307,7 @@ public class ConfigHandler
     }
 
     /**
-     * Rounds a scale to the nearest {@link #SCALE_STEP}. Keeps {@link #AUTO_SCALE} intact.
+     * Rounds a scale to the nearest {@link #scaleStep}. Keeps {@link #AUTO_SCALE} intact.
      */
     public static double quantize(double scale)
     {
@@ -302,7 +315,11 @@ public class ConfigHandler
             return AUTO_SCALE;
         }
 
-        return Math.round(scale / SCALE_STEP) * SCALE_STEP;
+        double step = scaleStep > 0.0D ? scaleStep : DEFAULT_SCALE_STEP;
+        double snapped = Math.round(scale / step) * step;
+
+        //Kill floating point dust so 3 * 0.05 does not turn into 0.15000000000000002.
+        return Math.round(snapped * 10000.0D) / 10000.0D;
     }
 
     /**

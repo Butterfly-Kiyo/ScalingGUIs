@@ -115,7 +115,7 @@ public class GuiSnappingSlider extends net.minecraftforge.fml.client.config.GuiS
         return formatScale(scale);
     }
 
-    /** Formats 4.0 as "4" and 3.75 as "3.75". */
+    /** Formats 4.0 as "4", 3.75 as "3.75" and anything finer as "3.735". */
     public static String formatScale(double scale)
     {
         if (scale == Math.floor(scale))
@@ -123,12 +123,11 @@ public class GuiSnappingSlider extends net.minecraftforge.fml.client.config.GuiS
             return Long.toString((long) scale);
         }
 
-        String text = Double.toString(Math.round(scale * 100.0D) / 100.0D);
+        //Most scales are multiples of 0.01, but a hand edited config can contain more decimals.
+        boolean needsThirdDigit = Math.abs(scale * 100.0D - Math.round(scale * 100.0D)) > 0.0001D;
+        double factor = needsThirdDigit ? 1000.0D : 100.0D;
 
-        if (text.endsWith("0"))
-        {
-            text = text.substring(0, text.length() - 1);
-        }
+        String text = Double.toString(Math.round(scale * factor) / factor).replaceAll("0+$", "");
 
         return text;
     }

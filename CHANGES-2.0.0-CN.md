@@ -1,7 +1,7 @@
 # ScalingGUIs 2.0.0 改动说明（小数缩放支持）
 
 版本：`1.12.2-2.0.0`
-目标：让 GUI / HUD / Tooltip 的缩放可以取**非整数**值（0.25 一档），使任意分辨率（尤其 2560×1440）都能调到与 1080p@3x 相同的视觉大小。
+目标：让 GUI / HUD / Tooltip 的缩放可以取**非整数**值（默认 0.05 一档，可配置），使任意分辨率（尤其 2560×1440）都能调到与 1080p@3x 相同的视觉大小。
 
 ---
 
@@ -85,20 +85,24 @@ ScaledResolution.<init>(Minecraft)  │
 
 | 项 | 旧版 | 新版 |
 | --- | --- | --- |
-| 类型 | int（1~8，另有 9 = 跟随主设置） | **double**，0.25 一档 |
+| 类型 | int（1~8，另有 9 = 跟随主设置） | **double**，默认 0.05 一档（`scaleStep` 可配置，0.01~0.5） |
 | `GUI Scale` / `HUD Scale` / `Tooltip Scale` | int | double |
 | 滑块含义 | 0 = AUTO (MAX)，9 = 跟随主 GUI 缩放 | **0 = AUTO（自适应）**，>0 = 直接指定倍数 |
-| AUTO 的含义 | 等于当前分辨率的最大整数缩放（2K 上是 6x → 426×240，极小） | **`屏幕高度 / referenceHeight`**，量化到 0.25 |
+| AUTO 的含义 | 等于当前分辨率的最大整数缩放（2K 上是 6x → 426×240，极小） | **`屏幕高度 / referenceHeight`**，量化到 `scaleStep` |
 | 滑块上限 | 写死 9 | 当前分辨率**真实可用**的上限 `min(displayWidth/320, displayHeight/240)`，不再有死档 |
-| 新增配置 | — | `referenceHeight`（默认 360，范围 200~1000）、`fractionalScaling`（默认 true）、`logScaleChanges`（默认 false） |
+| 新增配置 | — | `referenceHeight`（默认 360，范围 200~1000）、`scaleStep`（默认 0.05，范围 0.01~0.5，滑块步进）、`fractionalScaling`（默认 true）、`logScaleChanges`（默认 false） |
 
 ### AUTO 的换算
 
-`AUTO = 量化到 0.25 的 (displayHeight / referenceHeight)`
+`AUTO = 量化到 scaleStep 的 (displayHeight / referenceHeight)`
 
 - 参考高度 360 的物理含义：**1080p 分辨率下取 3x**，即"1K 屏幕上看着比较正常"的那一档；360 正是 1080/3。
 - 于是 1080p → 3.0、1440p → 4.0、2160p → 6.0，各分辨率下 GUI 元素的物理尺寸基本一致。
 - 想整体偏大就把 `referenceHeight` 调小（330 左右），偏小就调大（400 左右）。
+
+### 步进精度（scaleStep）
+
+滑块每次变化的幅度由 `scaleStep` 决定：`0.05`（默认，可调出 3.15 / 3.65 这种两位小数）、`0.25`（旧版粗粒度）、`0.01`（最精细）。修改后只影响滑块的步进，不会改动已经存下的数值；想要完全精确的值也可以直接编辑 `config/ScalingGUIs/ScalingGUIsCustomScales.json` 或 `config/ScalingGUIs/ScalingGUIs.cfg`。
 
 ### 旧配置迁移
 
@@ -124,9 +128,9 @@ ScaledResolution.<init>(Minecraft)  │
 修改：
 
 - `handlers/ConfigHandler.java`：缩放值改 double、新增 `quantize()` / `clampScale(double)` / `getVanillaMaxScale()` / `getMaxSelectableScale()` / `getAutoGuiScale()` / `getMainGuiScale()`，新增配置项与旧配置迁移
-- `handlers/ClientEventHandler.java`：改用 `ScaleContext`；去掉"整数缩放相同就提前返回"；动态缩放改 0.25 步进搜索；HUD 重渲染前后重建正交投影；Tooltip 缩放比改为 `target / 当前生效缩放`
+- `handlers/ClientEventHandler.java`：改用 `ScaleContext`；去掉"整数缩放相同就提前返回"；动态缩放按 `scaleStep` 步进搜索；HUD 重渲染前后重建正交投影；Tooltip 缩放比改为 `target / 当前生效缩放`
 - `config/CustomScales.java`：三个缩放字段改 double，新增 `formatVersion`
-- `gui/guiconfig/GuiSnappingSlider.java`：滑块量化到 0.25，0 显示为 `AUTO (实际值)`
+- `gui/guiconfig/GuiSnappingSlider.java`：滑块按 `scaleStep`（默认 0.05）量化，0 显示为 `AUTO (实际值)`
 - `gui/guiconfig/SnappingSliderEntry.java`：double 语义 + epsilon 比较
 - `gui/guiconfig/GuiConfigSG.java`：配置界面读写改 double，新建条目的默认值改 AUTO
 - `assets/scalingguis/lang/en_us.lang`：`AUTO (MAX)` → `AUTO (%s)`

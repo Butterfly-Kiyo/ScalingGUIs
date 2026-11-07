@@ -114,8 +114,8 @@ public class ClientEventHandler {
     }
 
     /**
-     * Finds the biggest scale (in 0.25 steps) at which the container still fits on screen. Formerly this was
-     * an integer loop over vanilla scale factors.
+     * Finds the biggest scale (in slider steps) at which the container still fits on screen. Formerly this
+     * was an integer loop over vanilla scale factors.
      */
     private double getDynamicScale(GuiContainer container)
     {
@@ -123,10 +123,11 @@ public class ClientEventHandler {
         int ySize = container.getYSize();
         Minecraft mc = Minecraft.getMinecraft();
 
-        int steps = (int) Math.round(ConfigHandler.getMaxSelectableScale() / ConfigHandler.SCALE_STEP);
+        double step = ConfigHandler.scaleStep > 0.0D ? ConfigHandler.scaleStep : ConfigHandler.DEFAULT_SCALE_STEP;
+        int steps = (int) Math.max(1L, Math.round(ConfigHandler.getMaxSelectableScale() / step));
 
         for (int i = steps; i >= 1; i--) {
-            double scale = ConfigHandler.quantize(i * ConfigHandler.SCALE_STEP);
+            double scale = ConfigHandler.quantize(i * step);
             double width = Math.floor(mc.displayWidth / scale);
             double height = Math.floor(mc.displayHeight / scale);
 
